@@ -1,0 +1,151 @@
+from fastapi.testclient import TestClient
+import pytest
+
+from app.config.settings import Settings
+from app.database.connection import DatabaseManager
+from app.http import create_app
+from app.schemas.common import ActionWebhookPayload, NotifyWebhookPayload
+
+
+class FakeBot:
+    def __init__(self) -> None:
+        self.is_gateway_connected = True
+        self.messages = []
+
+    async def send_message_to_guild(self, guild_id: str, message_content: str, embed_data=None) -> None:
+        self.messages.append((guild_id, message_content, embed_data))
+
+
+class FakeRoutingService:
+    def __init__(self) -> None:
+        self.payloads = []
+
+    async def route_user_action(self, payload: dict) -> bool:
+        self.payloads.append(payload)
+        return True
+
+
+class FakeWebhookLogRepository:
+    def __init__(self) -> None:
+        self.logs = []
+
+    async def add_log(self, server_id: str, action: str, payload: dict, status: str, error: str | None = None) -> None:
+        self.logs.append((server_id, action, status, error, payload))
+
+
+class FakeWebhookService:
+    def __init__(self) -> None:
+        self.notify_payloads = []
+        self.action_payloads = []
+
+    async def process_notify(self, payload: NotifyWebhookPayload) -> dict:
+        self.notify_payloads.append(payload)
+        return {"status": "delivered"}
+
+    async def process_action(self, payload: ActionWebhookPayload) -> dict:
+        self.action_payloads.append(payload)
+        return {"status": "delivered"}
+
+
+@pytest.fixture
+def api_client() -> tuple[TestClient, FakeWebhookService, FakeBot, DatabaseManager]:
+    settings = Settings.model_validate(
+        {
+            "DISCORD_BOT_TOKEN": "test",
+            "DATABASE_URL": "memory://test",
+            "HTTP_PORT": 8000,
+        }
+    )
+    db = DatabaseManager(settings.database_url)
+    db.database_connected = True
+    bot = FakeBot()
+    webhook_service = FakeWebhookService()
+    app = create_app(settings, db, webhook_service, bot)
+    return TestClient(app), webhook_service, bot, db
+
+
+def test_health_endpoint(api_client) -> None:
+    client, _, _, _ = api_client
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "healthy"
+    assert payload["bot_connected"] is True
+    assert payload["database_connected"] is True
+
+
+def test_webhook_notify_endpoint(api_client) -> None:
+    client, webhook_service, _, _ = api_client
+    response = client.post(
+        "/webhook/notify",
+        json={
+            "guild_id": "123456789",
+            "channel_id": "987654321",
+            "message_content": "hello",
+            "embed_data": {"title": "test"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "delivered"}
+    assert webhook_service.notify_payloads[0].guild_id == "123456789"
+
+
+def test_webhook_action_endpoint(api_client) -> None:
+    client, webhook_service, _, _ = api_client
+    response = client.post(
+        "/webhook/action",
+        json={
+            "action": "rescan_initiated",
+            "alert_id": "alert_123",
+            "guild_id": "123456789",
+            "user_id": "user_456",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "delivered"}
+    assert webhook_service.action_payloads[0].alert_id == "alert_123"
+
+
+@pytest.mark.asyncio
+async def test_database_connection_fallback(monkeypatch) -> None:
+    manager = DatabaseManager("mongodb://localhost:27017/test")
+
+    async def failing_connect() -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(manager, "_connect_mongo", failing_connect)
+
+    await manager.connect()
+
+    assert manager.database_connected is True
+    assert manager.using_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_notify_flow_logs_and_sends_message() -> None:
+    from app.services.webhook_service import WebhookService
+
+    bot = FakeBot()
+    routing = FakeRoutingService()
+    logs = FakeWebhookLogRepository()
+
+    class FakeServerRepository:
+        async def get_server(self, guild_id: str):
+            return {"guild_id": guild_id}
+
+    service = WebhookService(FakeServerRepository(), logs, bot, routing)
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        channel_id="456",
+        message_content="message",
+        embed_data=None,
+    )
+
+    result = await service.process_notify(payload)
+
+    assert result == {"status": "delivered"}
+    assert bot.messages[0][0] == "123"
+    assert logs.logs[0][2] == "delivered"
