@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: discord-ms-config
+data:
+  HTTP_PORT: "8000"
+  DISCORD_LOG_LEVEL: "INFO"
+  ENVIRONMENT: "production"
+  ALLOWED_ORIGINS: ""
+  ROUTING_SERVICE_URL: "http://gloria-service.default.svc.cluster.local:3000/webhook/action"

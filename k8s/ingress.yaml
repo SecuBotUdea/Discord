@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: discord-ms
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: discord.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: discord-ms
+            port:
+              number: 8000
