@@ -170,13 +170,58 @@ Eso mantiene el diseño simple y evita mezclar validación de negocio con entreg
 pytest -q
 ```
 
-## Deployment (plan gratuito)
+## Deployment en DigitalOcean Droplet
 
-Compatible con Render, Railway, Replit y DigitalOcean App Platform usando `python main.py` como comando de inicio y variables de entorno configuradas en la plataforma.
+La opción recomendada para este proyecto es una Droplet con Docker Compose y reinicio automático.
 
-## Deployment en Kubernetes
+### Archivos de despliegue
 
-Este repositorio ya incluye una base de despliegue en `k8s/`.
+- `Dockerfile`: construye la imagen del servicio.
+- `docker-compose.yml`: arranca el contenedor con reinicio automático.
+- `.dockerignore`: evita copiar secretos y archivos innecesarios al build.
+
+### Antes de subir
+
+1. Crea un archivo `.env` con tus valores reales.
+2. Revisa que `DATABASE_URL` apunte a MongoDB Atlas o a tu base accesible desde la Droplet.
+3. Revisa que `ROUTING_SERVICE_URL` apunte a Gloria si lo vas a usar.
+
+### Build y ejecución local
+
+```bash
+docker compose up -d --build
+```
+
+### Paso a paso en la Droplet
+
+1. Instala Docker y Docker Compose.
+2. Copia el repositorio o clónalo en la Droplet.
+3. Crea el archivo `.env` en la raíz.
+4. Ejecuta:
+
+```bash
+docker compose up -d --build
+```
+
+5. Verifica:
+
+```bash
+docker compose ps
+docker compose logs -f
+curl http://localhost:8000/health
+```
+
+### Recomendación operativa
+
+- Mantén un solo contenedor del bot.
+- Usa `restart: unless-stopped` para que vuelva solo si la Droplet reinicia.
+- Si expones el servicio por dominio, pon Nginx o Caddy delante con HTTPS.
+
+## Deployment en Kubernetes 24/7
+
+Este repositorio ya incluye una base de despliegue en `k8s/`, pensado para un clúster siempre encendido con nodos persistentes.
+
+No uses free tier ni entornos que suspendan pods por inactividad, porque el bot de Discord necesita una conexión continua al Gateway.
 
 ### Archivos incluidos
 
@@ -188,6 +233,14 @@ Este repositorio ya incluye una base de despliegue en `k8s/`.
 - `k8s/ingress.yaml`: exposición opcional por dominio.
 
 ### Paso a paso
+
+0. Asegura primero un entorno Kubernetes 24/7.
+
+Recomendado:
+
+- AKS, EKS, GKE o un clúster propio con nodos siempre activos.
+- Al menos 1 nodo estable y sin autosleep.
+- Un registry accesible por el clúster.
 
 1. Construye la imagen localmente.
 
@@ -255,5 +308,6 @@ Para que Discord funcione en Kubernetes necesitas estas conexiones:
 ### Recomendación operativa
 
 - Mantén `replicas: 1` para evitar dos conexiones del bot al Gateway.
+- Usa `strategy: Recreate` para que durante un despliegue nunca queden dos pods del bot conectados a la vez.
 - No publiques el bot directamente al exterior salvo por HTTP/Ingress.
 - Usa secretos para credenciales y ConfigMap para valores no sensibles.

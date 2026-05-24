@@ -1,0 +1,12 @@
+services:
+  discord-ms:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: discord-ms
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    init: true

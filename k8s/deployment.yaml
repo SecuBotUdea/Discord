@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: discord-ms
 spec:
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 2
   replicas: 1
   selector:
     matchLabels:
@@ -12,6 +15,7 @@ spec:
       labels:
         app: discord-ms
     spec:
+      terminationGracePeriodSeconds: 30
       containers:
       - name: discord-ms
         image: your-registry/discord-ms:latest
