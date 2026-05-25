@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 
 from app.models.server import ServerRecord
+from app.schemas.common import ActionWebhookPayload
 
 logger = logging.getLogger(__name__)
 
@@ -37,20 +38,19 @@ class DiscordGatewayBot(discord.Client):
             await interaction.response.send_message("✅ Discord microservice operativo", ephemeral=True)
 
         @self.tree.command(name="rescan", description="Reintentar escaneo de alerta")
-        @app_commands.describe(alert_id="ID de la alerta", user_id="ID de usuario opcional")
-        async def rescan(interaction: discord.Interaction, alert_id: str, user_id: str | None = None) -> None:
-            await interaction.response.defer(thinking=True)  # ← AÑADE ESTO
-            
+        @app_commands.describe(alert_id="ID de la alerta")
+        async def rescan(interaction: discord.Interaction, alert_id: str) -> None:
+            await interaction.response.defer(thinking=True)
+
             try:
-                # Payload EXACTO que Gloria espera (SIN "event")
-                payload = {
-                    "action": "rescan",
-                    "alert_id": alert_id,
-                    "guild_id": str(interaction.guild_id or ""),
-                    "user_id": str(user_id or interaction.user.id),
-                }
-                
-                await self.routing_service.route_user_action(payload)
+                payload = ActionWebhookPayload(
+                    action="rescan",
+                    alert_id=alert_id,
+                    guild_id=str(interaction.guild_id or ""),
+                    user_id=str(interaction.user.id),
+                )
+
+                await self.routing_service.route_user_action(payload.model_dump())
                 
                 await interaction.followup.send(
                     f"🔄 Reescaneo solicitado para `{alert_id}`"
