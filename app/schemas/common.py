@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class NotifyWebhookPayload(BaseModel):
-    guild_id: str
+    team_id: str
     channel_id: str
     message_content: str
     embed_data: dict[str, Any] | None = None
