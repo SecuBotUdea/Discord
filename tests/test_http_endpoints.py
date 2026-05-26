@@ -175,6 +175,97 @@ async def test_notify_flow_logs_and_sends_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_notify_flow_resolves_guild_from_team_id() -> None:
+    from unittest.mock import patch
+    from app.services.webhook_service import WebhookService
+
+    bot = FakeBot()
+    routing = FakeRoutingService()
+    logs = FakeWebhookLogRepository()
+
+    class FakeServerRepository:
+        async def get_server(self, guild_id: str):
+            return {"guild_id": guild_id}
+
+    service = WebhookService(FakeServerRepository(), logs, bot, routing)
+    payload = NotifyWebhookPayload(
+        team_id="team-001",
+        message_content="alerta resuelta",
+    )
+
+    with patch("app.services.webhook_service._TEAM_GUILD_MAP", {"team-001": "guild_abc"}):
+        result = await service.process_notify(payload)
+
+    assert result == {"status": "delivered"}
+    assert bot.messages[0][0] == "guild_abc"
+
+
+@pytest.mark.asyncio
+async def test_notify_flow_raises_without_guild_or_team_mapping() -> None:
+    from unittest.mock import patch
+    from app.services.webhook_service import WebhookService
+
+    bot = FakeBot()
+    routing = FakeRoutingService()
+    logs = FakeWebhookLogRepository()
+
+    class FakeServerRepository:
+        async def get_server(self, guild_id: str):
+            return {"guild_id": guild_id}
+
+    service = WebhookService(FakeServerRepository(), logs, bot, routing)
+    payload = NotifyWebhookPayload(message_content="sin guild ni team")
+
+    with patch("app.services.webhook_service._TEAM_GUILD_MAP", {}):
+        try:
+            await service.process_notify(payload)
+            assert False, "Debería haber lanzado ValueError"
+        except (ValueError, Exception):
+            pass
+
+
+def test_notify_payload_builds_message_from_alert_fields() -> None:
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        title="SQL injection detected",
+        severity="critical",
+        status="open",
+        component="api/auth",
+        location="https://github.com/org/repo/security/1",
+        source_type="zap",
+        team_name="Backend Team",
+    )
+
+    message = payload.get_message_content()
+
+    assert "SQL injection detected" in message
+    assert "critical" in message
+    assert "open" in message
+    assert "api/auth" in message
+    assert "Backend Team" in message
+
+
+def test_notify_payload_prefers_message_content_over_alert_fields() -> None:
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        message_content="texto directo",
+        title="este título no debe aparecer",
+    )
+
+    assert payload.get_message_content() == "texto directo"
+
+
+def test_notify_payload_raises_without_message_or_title() -> None:
+    payload = NotifyWebhookPayload(guild_id="123")
+
+    try:
+        payload.get_message_content()
+        assert False, "Debería haber lanzado ValueError"
+    except ValueError:
+        pass
+
+
+@pytest.mark.asyncio
 async def test_action_flow_keeps_user_id_when_routing() -> None:
     from app.services.webhook_service import WebhookService
 
