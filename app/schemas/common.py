@@ -15,6 +15,7 @@ class NotifyWebhookPayload(BaseModel):
     component: str | None = None
     location: str | None = None
     source_type: str | None = None
+    source_id: str | None = None
     team_id: str | None = None
     team_name: str | None = None
 
