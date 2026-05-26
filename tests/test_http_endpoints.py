@@ -138,6 +138,28 @@ def test_webhook_notify_endpoint_with_gloria_payload(api_client) -> None:
     assert webhook_service.notify_payloads[0].team_id == "team-001"
 
 
+def test_webhook_notify_endpoint_includes_alert_id_in_message(api_client) -> None:
+    client, webhook_service, _, _ = api_client
+    response = client.post(
+        "/webhook/notify",
+        json={
+            "alert_id": "alert_123",
+            "title": "Database outage",
+            "severity": "critical",
+            "status": "firing",
+            "component": "database",
+            "location": "us-east-1",
+            "source_type": "monitoring",
+            "team_id": "team_001",
+            "team_name": "Database Team",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "delivered"}
+    assert "Alert ID: alert_123" in webhook_service.notify_payloads[0].get_message_content()
+
+
 def test_webhook_action_endpoint(api_client) -> None:
     client, webhook_service, _, _ = api_client
     response = client.post(

@@ -34,9 +34,11 @@ class NotifyWebhookPayload(BaseModel):
         location = self.location or "unknown location"
         team = self.team_name or self.team_id or "unknown team"
         source_type = self.source_type or "unknown source"
+        alert_id_line = f"Alert ID: {self.alert_id}\n" if self.alert_id else ""
 
         return (
             f"[{severity}] {self.title}\n"
+            f"{alert_id_line}"
             f"Status: {status}\n"
             f"Component: {component}\n"
             f"Location: {location}\n"
