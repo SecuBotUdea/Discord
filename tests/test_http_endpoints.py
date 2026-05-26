@@ -115,6 +115,29 @@ def test_webhook_notify_endpoint_with_alert_payload(api_client) -> None:
     assert webhook_service.notify_payloads[0].title == "Database outage"
 
 
+def test_webhook_notify_endpoint_with_gloria_payload(api_client) -> None:
+    client, webhook_service, _, _ = api_client
+    response = client.post(
+        "/webhook/notify",
+        json={
+            "alert_id": "dependabot-pangoaguirre-get-dependabot-alerts-sample-1",
+            "title": "Test advisory",
+            "severity": "high",
+            "status": "open",
+            "component": "test-pkg",
+            "location": "https://github.com/pangoaguirre/get-dependabot-alerts-sample/security/dependabot/1",
+            "source_type": "dependabot",
+            "team_id": "team-001",
+            "team_name": "Mi Equipo",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "delivered"}
+    assert webhook_service.notify_payloads[0].alert_id == "dependabot-pangoaguirre-get-dependabot-alerts-sample-1"
+    assert webhook_service.notify_payloads[0].team_id == "team-001"
+
+
 def test_webhook_action_endpoint(api_client) -> None:
     client, webhook_service, _, _ = api_client
     response = client.post(
