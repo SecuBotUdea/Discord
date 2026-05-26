@@ -14,14 +14,17 @@ class WebhookService:
         self.routing_service = routing_service
 
     async def process_notify(self, payload: NotifyWebhookPayload) -> dict:
-        guild_id = _TEAM_GUILD_MAP.get(payload.team_id)
+        mapped_guild_id = _TEAM_GUILD_MAP.get(payload.team_id) if payload.team_id else None
+        guild_id = payload.guild_id or mapped_guild_id
         if not guild_id:
-            raise ValueError(f"No guild mapped for team_id={payload.team_id}")
+            raise ValueError(
+                "NotifyWebhookPayload requires guild_id or a valid team_id mapping"
+            )
 
         payload_dict = payload.model_dump()
         try:
             await self.bot.send_message_to_guild(
-                guild_id=payload.guild_id,
+                guild_id=guild_id,
                 message_content=payload.get_message_content(),
                 embed_data=payload.embed_data,
             )
