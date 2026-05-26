@@ -92,6 +92,29 @@ def test_webhook_notify_endpoint(api_client) -> None:
     assert webhook_service.notify_payloads[0].guild_id == "123456789"
 
 
+def test_webhook_notify_endpoint_with_alert_payload(api_client) -> None:
+    client, webhook_service, _, _ = api_client
+    response = client.post(
+        "/webhook/notify",
+        json={
+            "guild_id": "123456789",
+            "alert_id": "alert_123",
+            "title": "Database outage",
+            "severity": "critical",
+            "status": "firing",
+            "component": "database",
+            "location": "us-east-1",
+            "source_type": "monitoring",
+            "team_id": "team_001",
+            "team_name": "Database Team",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "delivered"}
+    assert webhook_service.notify_payloads[0].title == "Database outage"
+
+
 def test_webhook_action_endpoint(api_client) -> None:
     client, webhook_service, _, _ = api_client
     response = client.post(

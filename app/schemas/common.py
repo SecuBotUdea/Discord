@@ -5,9 +5,43 @@ from pydantic import BaseModel, Field
 
 class NotifyWebhookPayload(BaseModel):
     guild_id: str
-    channel_id: str
-    message_content: str
+    channel_id: str | None = None
+    message_content: str | None = None
     embed_data: dict[str, Any] | None = None
+    alert_id: str | None = None
+    title: str | None = None
+    severity: str | None = None
+    status: str | None = None
+    component: str | None = None
+    location: str | None = None
+    source_type: str | None = None
+    team_id: str | None = None
+    team_name: str | None = None
+
+    def get_message_content(self) -> str:
+        if self.message_content:
+            return self.message_content
+
+        if not self.title:
+            raise ValueError(
+                "NotifyWebhookPayload requires either message_content or title to build a notification"
+            )
+
+        severity = self.severity or "INFO"
+        status = self.status or "unknown"
+        component = self.component or "unknown component"
+        location = self.location or "unknown location"
+        team = self.team_name or self.team_id or "unknown team"
+        source_type = self.source_type or "unknown source"
+
+        return (
+            f"[{severity}] {self.title}\n"
+            f"Status: {status}\n"
+            f"Component: {component}\n"
+            f"Location: {location}\n"
+            f"Source: {source_type}\n"
+            f"Team: {team}"
+        )
 
 
 class ActionWebhookPayload(BaseModel):

@@ -15,7 +15,7 @@ class WebhookService:
         try:
             await self.bot.send_message_to_guild(
                 guild_id=payload.guild_id,
-                message_content=payload.message_content,
+                message_content=payload.get_message_content(),
                 embed_data=payload.embed_data,
             )
             await self.webhook_log_repository.add_log(
