@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 
 from app.models.server import ServerRecord
+from app.schemas.common import ActionWebhookPayload
 
 logger = logging.getLogger(__name__)
 
@@ -39,17 +40,24 @@ class DiscordGatewayBot(discord.Client):
         @self.tree.command(name="rescan", description="Reintentar escaneo de alerta")
         @app_commands.describe(alert_id="ID de la alerta", user_id="ID de usuario opcional")
         async def rescan(interaction: discord.Interaction, alert_id: str, user_id: str | None = None) -> None:
-            payload = {
-                "event": "user_action",
-                "guild_id": str(interaction.guild_id or ""),
-                "user_id": str(user_id or interaction.user.id),
-                "action": "rescan",
-                "alert_id": alert_id,
-            }
-            await self.routing_service.route_user_action(payload)
-            await interaction.response.send_message(
-                f"🔄 Reescaneo solicitado para `{alert_id}`", ephemeral=True
-            )
+            await interaction.response.defer(thinking=True)
+
+            try:
+                payload = ActionWebhookPayload(
+                    action="rescan",
+                    alert_id=alert_id,
+                    guild_id=str(interaction.guild_id or ""),
+                    user_id=str(user_id or interaction.user.id),
+                )
+
+                await self.routing_service.route_user_action(payload.model_dump())
+
+                await interaction.followup.send(
+                    f"🔄 Reescaneo solicitado para `{alert_id}`"
+                )
+            except Exception as e:
+                logger.error(f"Error en rescan: {e}")
+                await interaction.followup.send(f"❌ Error: {str(e)[:100]}")
 
     async def on_ready(self) -> None:
         logger.info("Discord gateway connected as %s", self.user)

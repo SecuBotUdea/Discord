@@ -172,3 +172,30 @@ async def test_notify_flow_logs_and_sends_message() -> None:
     assert result == {"status": "delivered"}
     assert bot.messages[0][0] == "123"
     assert logs.logs[0][2] == "delivered"
+
+
+@pytest.mark.asyncio
+async def test_action_flow_keeps_user_id_when_routing() -> None:
+    from app.services.webhook_service import WebhookService
+
+    bot = FakeBot()
+    routing = FakeRoutingService()
+    logs = FakeWebhookLogRepository()
+
+    class FakeServerRepository:
+        async def get_server(self, guild_id: str):
+            return {"guild_id": guild_id}
+
+    service = WebhookService(FakeServerRepository(), logs, bot, routing)
+    payload = ActionWebhookPayload(
+        action="rescan",
+        alert_id="alert_123",
+        guild_id="123",
+        user_id="user_456",
+    )
+
+    result = await service.process_action(payload)
+
+    assert result == {"status": "delivered"}
+    assert routing.payloads[0]["user_id"] == "user_456"
+    assert logs.logs[0][4]["user_id"] == "user_456"

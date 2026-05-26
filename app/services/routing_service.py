@@ -9,7 +9,7 @@ class RoutingService:
 
     async def route_user_action(self, payload: dict) -> bool:
         if not self._routing_service_url:
-            return False
+            raise RuntimeError("ROUTING_SERVICE_URL no configurado")
 
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(self._routing_service_url, json=payload)
