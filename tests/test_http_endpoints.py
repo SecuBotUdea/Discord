@@ -377,6 +377,18 @@ def test_notify_payload_uses_points_awarded_from_embed_data() -> None:
     assert WebhookService._get_points_awarded(payload) is False
 
 
+def test_notify_payload_fills_embed_description_from_message_content() -> None:
+    from app.core.bot import DiscordGatewayBot
+
+    embed = DiscordGatewayBot._build_embed(
+        "Rescan rechazado para alert_123",
+        {"alert_id": "alert_123", "points": 0, "points_awarded": False},
+    )
+
+    assert embed is not None
+    assert embed.description == "Rescan rechazado para alert_123"
+
+
 @pytest.mark.asyncio
 async def test_action_flow_keeps_user_id_when_routing() -> None:
     from app.services.webhook_service import WebhookService

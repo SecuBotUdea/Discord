@@ -92,7 +92,7 @@ class DiscordGatewayBot(discord.Client):
             raise ValueError(f"No webhook configuration for guild {guild_id}")
 
         webhook_url = f"https://discord.com/api/webhooks/{server['webhook_id']}/{server['webhook_token']}"
-        embed = discord.Embed.from_dict(embed_data) if embed_data else None
+        embed = self._build_embed(message_content, embed_data)
         async with aiohttp.ClientSession() as session:
             webhook = discord.Webhook.from_url(webhook_url, session=session)
             await webhook.send(content=message_content, embed=embed, wait=True)
@@ -104,8 +104,17 @@ class DiscordGatewayBot(discord.Client):
             raise ValueError(f"Invalid Discord user ID: {user_id}") from exc
 
         user = await self.fetch_user(discord_user_id)
-        embed = discord.Embed.from_dict(embed_data) if embed_data else None
+        embed = self._build_embed(message_content, embed_data)
         await user.send(content=message_content, embed=embed)
+
+    @staticmethod
+    def _build_embed(message_content: str, embed_data: dict | None) -> discord.Embed | None:
+        if not embed_data:
+            return None
+
+        normalized_embed_data = dict(embed_data)
+        normalized_embed_data.setdefault("description", message_content)
+        return discord.Embed.from_dict(normalized_embed_data)
 
 
 async def run_bot_with_backoff(bot: DiscordGatewayBot, token: str) -> None:
