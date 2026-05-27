@@ -118,7 +118,7 @@ Propósito:
 
 Se usa para notificar el resultado final al servidor de Discord.
 
-Entrada esperada:
+Entrada esperada para rescan válido:
 
 ```json
 {
@@ -127,7 +127,8 @@ Entrada esperada:
   "message_content": "Rescan válido para alert_123",
   "embed_data": {
     "title": "Rescan aprobado",
-    "description": "La solicitud fue validada por Gloria"
+    "description": "La solicitud fue validada por Gloria",
+    "points_awarded": true
   },
   "source": "gloria",
   "event_type": "rescan_valid"
@@ -139,11 +140,13 @@ Ejemplo para rescan no válido:
 ```json
 {
   "guild_id": "123456789",
+  "user_id": "987654321",
   "channel_id": "987654321",
   "message_content": "Rescan rechazado para alert_123",
   "embed_data": {
     "title": "Rescan rechazado",
-    "description": "La solicitud no cumple las condiciones requeridas"
+    "description": "La solicitud no cumple las condiciones requeridas",
+    "points_awarded": false
   },
   "source": "gloria",
   "event_type": "rescan_invalid"
@@ -153,7 +156,8 @@ Ejemplo para rescan no válido:
 Propósito:
 
 - Gloria informa el resultado.
-- Discord publica el mensaje en el servidor usando el webhook almacenado.
+- Si `points_awarded` es `true` o no viene informado, Discord publica el mensaje en el servidor usando el webhook almacenado.
+- Si `points_awarded` es `false`, Discord envía un mensaje directo al `user_id` indicado para avisar que el rescan no fue válido.
 
 ### Contrato recomendado para Gloria
 

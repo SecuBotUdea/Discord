@@ -1,13 +1,15 @@
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices
 
 
 class NotifyWebhookPayload(BaseModel):
     guild_id: str | None = None
     channel_id: str | None = None
-    message_content: str | None = None
+    user_id: str | None = None
+    message_content: str | None = Field(default=None, validation_alias=AliasChoices("message_content", "message"))
     embed_data: dict[str, Any] | None = None
+    points_awarded: bool | None = None
     alert_id: str | None = None
     title: str | None = None
     severity: str | None = None

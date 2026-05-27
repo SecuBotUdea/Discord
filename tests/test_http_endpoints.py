@@ -11,9 +11,13 @@ class FakeBot:
     def __init__(self) -> None:
         self.is_gateway_connected = True
         self.messages = []
+        self.direct_messages = []
 
     async def send_message_to_guild(self, guild_id: str, message_content: str, embed_data=None) -> None:
         self.messages.append((guild_id, message_content, embed_data))
+
+    async def send_message_to_user(self, user_id: str, message_content: str, embed_data=None) -> None:
+        self.direct_messages.append((user_id, message_content, embed_data))
 
 
 class FakeRoutingService:
@@ -90,6 +94,27 @@ def test_webhook_notify_endpoint(api_client) -> None:
     assert response.status_code == 200
     assert response.json() == {"status": "delivered"}
     assert webhook_service.notify_payloads[0].guild_id == "123456789"
+
+
+def test_webhook_notify_endpoint_accepts_message_field(api_client) -> None:
+    client, webhook_service, _, _ = api_client
+    response = client.post(
+        "/webhook/notify",
+        json={
+            "team_id": "team-001",
+            "user_id": "user-456",
+            "message": "Rescan rechazado para alert_123",
+            "embed_data": {
+                "alert_id": "alert_123",
+                "points": 0,
+                "points_awarded": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "delivered"}
+    assert webhook_service.notify_payloads[0].message_content == "Rescan rechazado para alert_123"
 
 
 def test_webhook_notify_endpoint_with_alert_payload(api_client) -> None:
@@ -220,6 +245,35 @@ async def test_notify_flow_logs_and_sends_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_notify_flow_sends_invalid_rescan_to_user_dm() -> None:
+    from app.services.webhook_service import WebhookService
+
+    bot = FakeBot()
+    routing = FakeRoutingService()
+    logs = FakeWebhookLogRepository()
+
+    class FakeServerRepository:
+        async def get_server(self, guild_id: str):
+            return {"guild_id": guild_id}
+
+    service = WebhookService(FakeServerRepository(), logs, bot, routing)
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        user_id="456",
+        message_content="Tu rescan no sirvió",
+        embed_data={"points_awarded": False},
+        points_awarded=False,
+    )
+
+    result = await service.process_notify(payload)
+
+    assert result == {"status": "delivered"}
+    assert bot.messages == []
+    assert bot.direct_messages[0][0] == "456"
+    assert logs.logs[0][2] == "delivered"
+
+
+@pytest.mark.asyncio
 async def test_notify_flow_resolves_guild_from_team_id() -> None:
     from unittest.mock import patch
     from app.services.webhook_service import WebhookService
@@ -308,6 +362,19 @@ def test_notify_payload_raises_without_message_or_title() -> None:
         assert False, "Debería haber lanzado ValueError"
     except ValueError:
         pass
+
+
+def test_notify_payload_uses_points_awarded_from_embed_data() -> None:
+    from app.services.webhook_service import WebhookService
+
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        user_id="456",
+        message_content="mensaje",
+        embed_data={"points_awarded": False},
+    )
+
+    assert WebhookService._get_points_awarded(payload) is False
 
 
 @pytest.mark.asyncio

@@ -97,6 +97,16 @@ class DiscordGatewayBot(discord.Client):
             webhook = discord.Webhook.from_url(webhook_url, session=session)
             await webhook.send(content=message_content, embed=embed, wait=True)
 
+    async def send_message_to_user(self, user_id: str, message_content: str, embed_data: dict | None = None) -> None:
+        try:
+            discord_user_id = int(user_id)
+        except ValueError as exc:
+            raise ValueError(f"Invalid Discord user ID: {user_id}") from exc
+
+        user = await self.fetch_user(discord_user_id)
+        embed = discord.Embed.from_dict(embed_data) if embed_data else None
+        await user.send(content=message_content, embed=embed)
+
 
 async def run_bot_with_backoff(bot: DiscordGatewayBot, token: str) -> None:
     retry_wait = 1
