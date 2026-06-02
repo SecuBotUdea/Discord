@@ -306,6 +306,41 @@ async def test_notify_flow_resolves_guild_from_team_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_notify_flow_ignores_duplicate_payloads() -> None:
+    from app.services.webhook_service import WebhookService
+
+    bot = FakeBot()
+    routing = FakeRoutingService()
+    logs = FakeWebhookLogRepository()
+
+    class FakeServerRepository:
+        async def get_server(self, guild_id: str):
+            return {"guild_id": guild_id}
+
+    service = WebhookService(FakeServerRepository(), logs, bot, routing)
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        alert_id="alert_123",
+        title="Uninitialized memory disclosure",
+        severity="medium",
+        status="open",
+        component="ws",
+        location="https://github.com/PangoAguirre/coleccionDeCiencias/security/dependabot/5",
+        source_type="dependabot",
+        team_name="coleccionDeCiencias",
+        message_content="[medium] ws: Uninitialized memory disclosure",
+    )
+
+    first_result = await service.process_notify(payload)
+    second_result = await service.process_notify(payload)
+
+    assert first_result == {"status": "delivered"}
+    assert second_result == {"status": "duplicate_ignored"}
+    assert len(bot.messages) == 1
+    assert logs.logs[-1][2] == "deduplicated"
+
+
+@pytest.mark.asyncio
 async def test_notify_flow_raises_without_guild_or_team_mapping() -> None:
     from unittest.mock import patch
     from app.services.webhook_service import WebhookService

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app.schemas.common import ActionWebhookPayload, NotifyWebhookPayload
 
 from app.config.team_guild_map import load_team_guild_map
 
 _TEAM_GUILD_MAP = load_team_guild_map()
+_NOTIFY_DEDUP_WINDOW_SECONDS = 30
 
 class WebhookService:
     def __init__(self, server_repository, webhook_log_repository, bot, routing_service) -> None:
@@ -12,6 +15,7 @@ class WebhookService:
         self.webhook_log_repository = webhook_log_repository
         self.bot = bot
         self.routing_service = routing_service
+        self._recent_notify_fingerprints: dict[str, datetime] = {}
 
     @staticmethod
     def _get_points_awarded(payload: NotifyWebhookPayload) -> bool | None:
@@ -25,6 +29,44 @@ class WebhookService:
 
         return None
 
+    def _notify_fingerprint(self, payload: NotifyWebhookPayload, guild_id: str) -> str:
+        embed_data = payload.embed_data or {}
+        fingerprint_parts = (
+            guild_id,
+            payload.user_id or "",
+            payload.alert_id or "",
+            payload.title or "",
+            payload.severity or "",
+            payload.status or "",
+            payload.component or "",
+            payload.location or "",
+            payload.source_type or "",
+            payload.source_id or "",
+            payload.team_id or "",
+            payload.team_name or "",
+            payload.message_content or "",
+            str(payload.points_awarded),
+            repr(sorted(embed_data.items())),
+        )
+        return "|".join(fingerprint_parts)
+
+    def _is_recent_notify_duplicate(self, fingerprint: str) -> bool:
+        now = datetime.now(timezone.utc)
+
+        expired_fingerprints = [
+            stored_fingerprint
+            for stored_fingerprint, stored_at in self._recent_notify_fingerprints.items()
+            if (now - stored_at).total_seconds() > _NOTIFY_DEDUP_WINDOW_SECONDS
+        ]
+        for stored_fingerprint in expired_fingerprints:
+            self._recent_notify_fingerprints.pop(stored_fingerprint, None)
+
+        if fingerprint in self._recent_notify_fingerprints:
+            return True
+
+        self._recent_notify_fingerprints[fingerprint] = now
+        return False
+
     async def process_notify(self, payload: NotifyWebhookPayload) -> dict:
         mapped_guild_id = _TEAM_GUILD_MAP.get(payload.team_id) if payload.team_id else None
         guild_id = payload.guild_id or mapped_guild_id
@@ -35,26 +77,32 @@ class WebhookService:
 
         payload_dict = payload.model_dump()
         points_awarded = self._get_points_awarded(payload)
+        fingerprint = self._notify_fingerprint(payload, guild_id)
         try:
+            if self._is_recent_notify_duplicate(fingerprint):
+                await self.webhook_log_repository.add_log(
+                    server_id=guild_id,
+                    action="notify",
+                    payload=payload_dict,
+                    status="deduplicated",
+                )
+                return {"status": "duplicate_ignored"}
+
             if points_awarded is False:
                 if not payload.user_id:
                     raise ValueError("NotifyWebhookPayload requires user_id when points_awarded is false")
 
-                print("Pasé por acá")
                 await self.bot.send_message_to_user(
                     user_id=payload.user_id,
                     message_content=payload.get_message_content(),
                     embed_data=payload.build_embed_data(),
                 )
-                print("Por acá también")
             else:
-                print("Pasé por acá")
                 await self.bot.send_message_to_guild(
                     guild_id=guild_id,
                     message_content=payload.get_message_content(),
                     embed_data=payload.build_embed_data(),
                 )
-                print("Por acá también")
 
             await self.webhook_log_repository.add_log(
                 server_id=guild_id,
