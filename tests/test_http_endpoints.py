@@ -436,7 +436,7 @@ def test_notify_payload_builds_colored_embed_for_severity() -> None:
     assert embed_data is not None
     assert embed_data["title"].startswith("🟠 ")
     assert embed_data["color"] == 0xF39C12
-    assert "Uninitialized memory disclosure" in embed_data["description"]
+    assert "description" not in embed_data
 
 
 def test_notify_payload_uses_gray_embed_for_unknown_severity() -> None:

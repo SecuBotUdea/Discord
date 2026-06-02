@@ -74,13 +74,9 @@ class NotifyWebhookPayload(BaseModel):
 
     def build_embed_data(self) -> dict[str, Any] | None:
         embed_data = dict(self.embed_data or {})
-        message_content = self.get_message_content()
 
         if self.title and "title" not in embed_data:
             embed_data["title"] = f"{self.get_severity_icon()} {self.title}"
-
-        if "description" not in embed_data:
-            embed_data["description"] = message_content
 
         if "color" not in embed_data:
             embed_data["color"] = self.get_severity_color()
