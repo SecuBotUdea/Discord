@@ -120,7 +120,6 @@ class DiscordGatewayBot(discord.Client):
             return None
 
         normalized_embed_data = dict(embed_data)
-        normalized_embed_data.setdefault("description", message_content)
         return discord.Embed.from_dict(normalized_embed_data)
 
 

@@ -428,7 +428,7 @@ def test_notify_payload_fills_embed_description_from_message_content() -> None:
     )
 
     assert embed is not None
-    assert embed.description == "Rescan rechazado para alert_123"
+    assert embed.description is None
 
 
 @pytest.mark.asyncio
