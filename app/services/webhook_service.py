@@ -40,17 +40,21 @@ class WebhookService:
                 if not payload.user_id:
                     raise ValueError("NotifyWebhookPayload requires user_id when points_awarded is false")
 
+                print("Pasé por acá")
                 await self.bot.send_message_to_user(
                     user_id=payload.user_id,
                     message_content=payload.get_message_content(),
-                    embed_data=payload.embed_data,
+                    embed_data=payload.build_embed_data(),
                 )
+                print("Por acá también")
             else:
+                print("Pasé por acá")
                 await self.bot.send_message_to_guild(
                     guild_id=guild_id,
                     message_content=payload.get_message_content(),
-                    embed_data=payload.embed_data,
+                    embed_data=payload.build_embed_data(),
                 )
+                print("Por acá también")
 
             await self.webhook_log_repository.add_log(
                 server_id=guild_id,

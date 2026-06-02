@@ -1,3 +1,9 @@
+from pathlib import Path
+import sys
+
+if __package__ is None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from fastapi.testclient import TestClient
 import pytest
 
@@ -375,6 +381,42 @@ def test_notify_payload_uses_points_awarded_from_embed_data() -> None:
     )
 
     assert WebhookService._get_points_awarded(payload) is False
+
+
+def test_notify_payload_builds_colored_embed_for_severity() -> None:
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        alert_id="alert_123",
+        title="Uninitialized memory disclosure",
+        severity="medium",
+        status="open",
+        component="ws",
+        location="https://example.com/security/1",
+        source_type="dependabot",
+        team_name="coleccionDeCiencias",
+    )
+
+    embed_data = payload.build_embed_data()
+
+    assert embed_data is not None
+    assert embed_data["title"].startswith("🟠 ")
+    assert embed_data["color"] == 0xF39C12
+    assert "Uninitialized memory disclosure" in embed_data["description"]
+
+
+def test_notify_payload_uses_gray_embed_for_unknown_severity() -> None:
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        title="Custom alert",
+        severity="whatever",
+        message_content="Custom alert body",
+    )
+
+    embed_data = payload.build_embed_data()
+
+    assert embed_data is not None
+    assert embed_data["title"].startswith("⚪ ")
+    assert embed_data["color"] == 0x95A5A6
 
 
 def test_notify_payload_fills_embed_description_from_message_content() -> None:

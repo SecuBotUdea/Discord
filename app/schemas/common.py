@@ -21,6 +21,21 @@ class NotifyWebhookPayload(BaseModel):
     team_id: str | None = None
     team_name: str | None = None
 
+    _SEVERITY_COLORS: dict[str, int] = {
+        "low": 0x2ECC71,
+        "medium": 0xF39C12,
+        "high": 0xE74C3C,
+        "informational": 0x95A5A6,
+        "info": 0x95A5A6,
+    }
+    _SEVERITY_ICONS: dict[str, str] = {
+        "low": "🟢",
+        "medium": "🟠",
+        "high": "🔴",
+        "informational": "ℹ️",
+        "info": "ℹ️",
+    }
+
     def get_message_content(self) -> str:
         if self.message_content:
             return self.message_content
@@ -47,6 +62,30 @@ class NotifyWebhookPayload(BaseModel):
             f"Source: {source_type}\n"
             f"Team: {team}"
         )
+
+    def get_severity_key(self) -> str:
+        return (self.severity or "").strip().lower()
+
+    def get_severity_icon(self) -> str:
+        return self._SEVERITY_ICONS.get(self.get_severity_key(), "⚪")
+
+    def get_severity_color(self) -> int:
+        return self._SEVERITY_COLORS.get(self.get_severity_key(), 0x95A5A6)
+
+    def build_embed_data(self) -> dict[str, Any] | None:
+        embed_data = dict(self.embed_data or {})
+        message_content = self.get_message_content()
+
+        if self.title and "title" not in embed_data:
+            embed_data["title"] = f"{self.get_severity_icon()} {self.title}"
+
+        if "description" not in embed_data:
+            embed_data["description"] = message_content
+
+        if "color" not in embed_data:
+            embed_data["color"] = self.get_severity_color()
+
+        return embed_data or None
 
 
 class ActionWebhookPayload(BaseModel):

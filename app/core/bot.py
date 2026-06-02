@@ -40,7 +40,14 @@ class DiscordGatewayBot(discord.Client):
         @self.tree.command(name="rescan", description="Reintentar escaneo de alerta")
         @app_commands.describe(alert_id="ID de la alerta", user_id="ID de usuario opcional")
         async def rescan(interaction: discord.Interaction, alert_id: str, user_id: str | None = None) -> None:
-            await interaction.response.defer(thinking=True)
+            interaction_open = not interaction.response.is_done()
+
+            if interaction_open:
+                try:
+                    await interaction.response.defer(thinking=True)
+                except (discord.NotFound, discord.HTTPException) as exc:
+                    logger.warning("Unable to acknowledge rescan interaction for %s: %s", alert_id, exc)
+                    interaction_open = False
 
             try:
                 payload = ActionWebhookPayload(
@@ -52,12 +59,12 @@ class DiscordGatewayBot(discord.Client):
 
                 await self.routing_service.route_user_action(payload.model_dump())
 
-                await interaction.followup.send(
-                    f"🔄 Reescaneo solicitado para `{alert_id}`"
-                )
+                if interaction_open:
+                    await interaction.followup.send(f"🔄 Reescaneo solicitado para `{alert_id}`")
             except Exception as e:
                 logger.error(f"Error en rescan: {e}")
-                await interaction.followup.send(f"❌ Error: {str(e)[:100]}")
+                if interaction_open:
+                    await interaction.followup.send(f"❌ Error: {str(e)[:100]}")
 
     async def on_ready(self) -> None:
         logger.info("Discord gateway connected as %s", self.user)
