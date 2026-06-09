@@ -78,6 +78,24 @@ class NotifyWebhookPayload(BaseModel):
         if self.title and "title" not in embed_data:
             embed_data["title"] = f"{self.get_severity_icon()} {self.title}"
 
+        if "description" not in embed_data:
+            description_lines = []
+            if self.alert_id:
+                description_lines.append(f"Alert ID: {self.alert_id}")
+            if self.status:
+                description_lines.append(f"Status: {self.status}")
+            if self.component:
+                description_lines.append(f"Component: {self.component}")
+            if self.location:
+                description_lines.append(f"Location: {self.location}")
+            if self.source_type:
+                description_lines.append(f"Source: {self.source_type}")
+            if self.team_name or self.team_id:
+                description_lines.append(f"Team: {self.team_name or self.team_id}")
+
+            if description_lines:
+                embed_data["description"] = "\n".join(description_lines)
+
         if "color" not in embed_data:
             embed_data["color"] = self.get_severity_color()
 

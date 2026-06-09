@@ -27,12 +27,13 @@ async def main() -> None:
     await database_manager.connect()
 
     routing_service = RoutingService(settings.routing_service_url)
-    bot = DiscordGatewayBot(database_manager.server_repository, routing_service)
+    bot = DiscordGatewayBot(database_manager.server_repository, routing_service, database_manager.alert_message_repository)
     webhook_service = WebhookService(
         server_repository=database_manager.server_repository,
         webhook_log_repository=database_manager.webhook_log_repository,
         bot=bot,
         routing_service=routing_service,
+        alert_message_repository=database_manager.alert_message_repository,
     )
 
     app = create_app(settings, database_manager, webhook_service, bot)

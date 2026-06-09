@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class DiscordGatewayBot(discord.Client):
-    def __init__(self, server_repository, routing_service) -> None:
+    def __init__(self, server_repository, routing_service, alert_message_repository) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
         intents.guilds = True
@@ -23,6 +23,7 @@ class DiscordGatewayBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
         self.server_repository = server_repository
         self.routing_service = routing_service
+        self.alert_message_repository = alert_message_repository
 
     @property
     def is_gateway_connected(self) -> bool:
@@ -93,7 +94,61 @@ class DiscordGatewayBot(discord.Client):
         logger.info("Removed from guild %s", guild.id)
         await self.server_repository.deactivate_server(str(guild.id))
 
-    async def send_message_to_guild(self, guild_id: str, message_content: str, embed_data: dict | None = None) -> None:
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        # Ignore bot's own reactions
+        try:
+            if payload.user_id == (self.user.id if self.user else None):
+                return
+        except Exception:
+            pass
+
+        message_id = str(payload.message_id)
+        try:
+            mapping = await self.alert_message_repository.get_by_message_id(message_id)
+        except Exception:
+            mapping = None
+
+        if not mapping:
+            return
+
+        # Accept common rescan emojis
+        emoji = str(payload.emoji)
+        if emoji not in ("🔄", "🔁"):
+            return
+
+        # Build action payload and route
+        try:
+            action_payload = ActionWebhookPayload(
+                action="rescan",
+                alert_id=mapping.get("alert_id"),
+                guild_id=mapping.get("guild_id"),
+                user_id=str(payload.user_id),
+            )
+
+            await self.routing_service.route_user_action(action_payload.model_dump())
+
+            # mark mapping as actioned to avoid duplicates
+            try:
+                # mark_actioned returns True only for the first actor
+                marked = await self.alert_message_repository.mark_actioned(message_id, status="actioned", acted_by_user_id=str(payload.user_id))
+                if not marked:
+                    # already handled by someone else
+                    return
+            except Exception:
+                # if marking fails, continue but avoid duplicate routing risk
+                return
+
+            # Optionally acknowledge via DM
+            try:
+                discord_user = await self.fetch_user(int(payload.user_id))
+                await discord_user.send(f"🔄 Reescaneo solicitado para `{action_payload.alert_id}`")
+            except Exception:
+                # ignore failures to DM
+                pass
+        except Exception as exc:  # pragma: no cover - best-effort handler
+            logger.exception("Error handling reaction for message %s: %s", message_id, exc)
+
+    async def send_message_to_guild(self, guild_id: str, message_content: str, embed_data: dict | None = None) -> str | None:
         server = await self.server_repository.get_server(guild_id)
         if not server:
             raise ValueError(f"No webhook configuration for guild {guild_id}")
@@ -102,7 +157,13 @@ class DiscordGatewayBot(discord.Client):
         embed = self._build_embed(message_content, embed_data)
         async with aiohttp.ClientSession() as session:
             webhook = discord.Webhook.from_url(webhook_url, session=session)
-            await webhook.send(content=message_content, embed=embed, wait=True)
+            result = await webhook.send(content=message_content, embed=embed, wait=True)
+            # `result` is a WebhookMessage when `wait=True`. Return its id if available.
+            try:
+                message_id = getattr(result, "id", None)
+                return str(message_id) if message_id is not None else None
+            except Exception:
+                return None
 
     async def send_message_to_user(self, user_id: str, message_content: str, embed_data: dict | None = None) -> None:
         try:
@@ -113,6 +174,20 @@ class DiscordGatewayBot(discord.Client):
         user = await self.fetch_user(discord_user_id)
         embed = self._build_embed(message_content, embed_data)
         await user.send(content=message_content, embed=embed)
+
+    async def remove_reaction_from_message(self, guild_id: str, channel_id: str, message_id: str, emoji: str) -> bool:
+        """Remove all reactions of a given emoji from a message. Returns True on success."""
+        try:
+            chan = self.get_channel(int(channel_id))
+            if not chan:
+                chan = await self.fetch_channel(int(channel_id))
+
+            message = await chan.fetch_message(int(message_id))
+            await message.clear_reaction(emoji)
+            return True
+        except Exception as exc:  # pragma: no cover - best-effort
+            logger.debug("Failed to remove reaction %s from message %s: %s", emoji, message_id, exc)
+            return False
 
     @staticmethod
     def _build_embed(message_content: str, embed_data: dict | None) -> discord.Embed | None:

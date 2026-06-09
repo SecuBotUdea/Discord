@@ -436,7 +436,12 @@ def test_notify_payload_builds_colored_embed_for_severity() -> None:
     assert embed_data is not None
     assert embed_data["title"].startswith("🟠 ")
     assert embed_data["color"] == 0xF39C12
-    assert "description" not in embed_data
+    assert embed_data["description"].startswith("Alert ID: alert_123")
+    assert "Status: open" in embed_data["description"]
+    assert "Component: ws" in embed_data["description"]
+    assert "Location: https://example.com/security/1" in embed_data["description"]
+    assert "Source: dependabot" in embed_data["description"]
+    assert "Team: coleccionDeCiencias" in embed_data["description"]
 
 
 def test_notify_payload_uses_gray_embed_for_unknown_severity() -> None:
