@@ -12,6 +12,8 @@ from app.schemas.common import ActionWebhookPayload
 
 logger = logging.getLogger(__name__)
 
+RESCAN_EMOJI = "🔄"
+
 
 class DiscordGatewayBot(discord.Client):
     def __init__(self, server_repository, routing_service, alert_message_repository) -> None:
@@ -111,9 +113,11 @@ class DiscordGatewayBot(discord.Client):
         if not mapping:
             return
 
-        # Accept common rescan emojis
-        emoji = str(payload.emoji)
-        if emoji not in ("🔄", "🔁"):
+        # Accept rescan by unicode or by emoji name (server custom emoji)
+        emoji_obj = payload.emoji
+        emoji_str = str(emoji_obj)
+        emoji_name = getattr(emoji_obj, "name", None)
+        if not (emoji_str == RESCAN_EMOJI or emoji_name == RESCAN_EMOJI_NAME):
             return
 
         # Build action payload and route
@@ -138,6 +142,25 @@ class DiscordGatewayBot(discord.Client):
                 # if marking fails, continue but avoid duplicate routing risk
                 return
 
+            try:
+                # try removing user's reaction by name first, then by unicode
+                await self.remove_user_reaction_from_message(
+                    channel_id=mapping.get("channel_id"),
+                    message_id=message_id,
+                    emoji=f":{RESCAN_EMOJI_NAME}:",
+                    user_id=str(payload.user_id),
+                )
+            except Exception:
+                try:
+                    await self.remove_user_reaction_from_message(
+                        channel_id=mapping.get("channel_id"),
+                        message_id=message_id,
+                        emoji=RESCAN_EMOJI,
+                        user_id=str(payload.user_id),
+                    )
+                except Exception:
+                    pass
+
             # Optionally acknowledge via DM
             try:
                 discord_user = await self.fetch_user(int(payload.user_id))
@@ -158,12 +181,32 @@ class DiscordGatewayBot(discord.Client):
         async with aiohttp.ClientSession() as session:
             webhook = discord.Webhook.from_url(webhook_url, session=session)
             result = await webhook.send(content=message_content, embed=embed, wait=True)
+            logger.info("Attempting to add rescan reaction to webhook message %s", getattr(result, "id", None))
+            try:
+                await result.add_reaction(RESCAN_EMOJI)
+                logger.info("Added rescan reaction to webhook message %s", getattr(result, "id", None))
+            except Exception:
+                logger.exception("Failed to add rescan reaction to webhook message %s", getattr(result, "id", None))
             # `result` is a WebhookMessage when `wait=True`. Return its id if available.
             try:
                 message_id = getattr(result, "id", None)
                 return str(message_id) if message_id is not None else None
             except Exception:
                 return None
+
+    async def add_reaction_to_message(self, channel_id: str, message_id: str, emoji: str = RESCAN_EMOJI) -> bool:
+        try:
+            chan = self.get_channel(int(channel_id))
+            if not chan:
+                chan = await self.fetch_channel(int(channel_id))
+
+            message = await chan.fetch_message(int(message_id))
+            await message.add_reaction(emoji)
+            logger.debug("pase por acá")
+            return True
+        except Exception as exc:  # pragma: no cover - best-effort
+            logger.debug("Failed to add reaction %s to message %s: %s", emoji, message_id, exc)
+            return False
 
     async def send_message_to_user(self, user_id: str, message_content: str, embed_data: dict | None = None) -> None:
         try:
@@ -175,18 +218,25 @@ class DiscordGatewayBot(discord.Client):
         embed = self._build_embed(message_content, embed_data)
         await user.send(content=message_content, embed=embed)
 
-    async def remove_reaction_from_message(self, guild_id: str, channel_id: str, message_id: str, emoji: str) -> bool:
-        """Remove all reactions of a given emoji from a message. Returns True on success."""
+    async def remove_user_reaction_from_message(self, channel_id: str, message_id: str, emoji: str = RESCAN_EMOJI, user_id: str | None = None) -> bool:
+        """Remove a specific user's reaction from a message. Returns True on success."""
         try:
             chan = self.get_channel(int(channel_id))
             if not chan:
                 chan = await self.fetch_channel(int(channel_id))
 
             message = await chan.fetch_message(int(message_id))
-            await message.clear_reaction(emoji)
+            if user_id is None:
+                await message.clear_reaction(emoji)
+            else:
+                try:
+                    user = await self.fetch_user(int(user_id))
+                    await message.remove_reaction(emoji, user)
+                except Exception:
+                    await message.clear_reaction(emoji)
             return True
         except Exception as exc:  # pragma: no cover - best-effort
-            logger.debug("Failed to remove reaction %s from message %s: %s", emoji, message_id, exc)
+            logger.debug("Failed to remove user reaction %s from message %s: %s", emoji, message_id, exc)
             return False
 
     @staticmethod

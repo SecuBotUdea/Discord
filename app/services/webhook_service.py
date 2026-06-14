@@ -77,6 +77,12 @@ class WebhookService:
                 "NotifyWebhookPayload requires guild_id or a valid team_id mapping"
             )
 
+        server_record = None
+        try:
+            server_record = await self.server_repository.get_server(guild_id)
+        except Exception:
+            server_record = None
+
         payload_dict = payload.model_dump()
         points_awarded = self._get_points_awarded(payload)
         fingerprint = self._notify_fingerprint(payload, guild_id)
@@ -136,10 +142,11 @@ class WebhookService:
                     embed_data=payload.build_embed_data(),
                 )
                 if message_id and payload.alert_id:
+                    channel_id = payload.channel_id or (server_record or {}).get("channel_id") or ""
                     mapping = AlertMessageMapping(
                         alert_id=payload.alert_id,
                         guild_id=guild_id,
-                        channel_id=payload.channel_id or "",
+                        channel_id=channel_id,
                         message_id=message_id,
                     )
                     try:
