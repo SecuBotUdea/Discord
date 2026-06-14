@@ -181,16 +181,21 @@ class DiscordGatewayBot(discord.Client):
         async with aiohttp.ClientSession() as session:
             webhook = discord.Webhook.from_url(webhook_url, session=session)
             result = await webhook.send(content=message_content, embed=embed, wait=True)
-            logger.info("Attempting to add rescan reaction to webhook message %s", getattr(result, "id", None))
-            try:
-                await result.add_reaction(RESCAN_EMOJI)
-                logger.info("Added rescan reaction to webhook message %s", getattr(result, "id", None))
-            except Exception:
-                logger.exception("Failed to add rescan reaction to webhook message %s", getattr(result, "id", None))
             # `result` is a WebhookMessage when `wait=True`. Return its id if available.
             try:
                 message_id = getattr(result, "id", None)
-                return str(message_id) if message_id is not None else None
+                if message_id is not None:
+                    message_id_str = str(message_id)
+                    channel_id = server.get("channel_id")
+                    if channel_id:
+                        logger.info("Attempting to add rescan reaction to webhook message %s in channel %s", message_id_str, channel_id)
+                        added = await self.add_reaction_to_message(str(channel_id), message_id_str, RESCAN_EMOJI)
+                        if added:
+                            logger.info("Added rescan reaction to webhook message %s", message_id_str)
+                        else:
+                            logger.error("Failed to add rescan reaction to webhook message %s in channel %s", message_id_str, channel_id)
+                    return message_id_str
+                return None
             except Exception:
                 return None
 
@@ -202,10 +207,9 @@ class DiscordGatewayBot(discord.Client):
 
             message = await chan.fetch_message(int(message_id))
             await message.add_reaction(emoji)
-            logger.debug("pase por acá")
             return True
         except Exception as exc:  # pragma: no cover - best-effort
-            logger.debug("Failed to add reaction %s to message %s: %s", emoji, message_id, exc)
+            logger.exception("Failed to add reaction %s to message %s", emoji, message_id)
             return False
 
     async def send_message_to_user(self, user_id: str, message_content: str, embed_data: dict | None = None) -> None:
