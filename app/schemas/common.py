@@ -45,7 +45,10 @@ class NotifyWebhookPayload(BaseModel):
                 "NotifyWebhookPayload requires either message_content or title to build a notification"
             )
 
-        severity = self.severity or "INFO"
+        # CORRECCIÓN: Normalizamos la severidad. 
+        # .capitalize() transformará "medium" en "Medium". Si prefieres todo en mayúsculas, usa .upper()
+        severity = (self.severity or "INFO").strip().capitalize() 
+        
         status = self.status or "unknown"
         component = self.component or "unknown component"
         location = self.location or "unknown location"
