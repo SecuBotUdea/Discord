@@ -37,8 +37,22 @@ class NotifyWebhookPayload(BaseModel):
         "info": "ℹ️",
     }
 
-    def get_message_content(self) -> str:
+    def is_points_awarded(self) -> bool:
+        if self.points_awarded is not None:
+            return self.points_awarded
+        if isinstance(self.embed_data, dict):
+            points_awarded = self.embed_data.get("points_awarded")
+            if isinstance(points_awarded, bool):
+                return points_awarded
+        return False
+
+    def is_rescan_valid_event(self) -> bool:
         if self.event_type == "rescan_valid":
+            return True
+        return self.is_points_awarded()
+
+    def get_message_content(self) -> str:
+        if self.is_rescan_valid_event():
             return ""
 
         if self.message_content:
@@ -88,7 +102,7 @@ class NotifyWebhookPayload(BaseModel):
         if "description" not in embed_data:
             description_lines = []
             
-            if self.event_type == "rescan_valid" and self.message_content:
+            if self.is_rescan_valid_event() and self.message_content:
                 description_lines.append(self.message_content)
                 description_lines.append("")
 
@@ -111,7 +125,7 @@ class NotifyWebhookPayload(BaseModel):
         if "color" not in embed_data:
             embed_data["color"] = self.get_severity_color()
 
-        if self.event_type != "rescan_valid":
+        if not self.is_rescan_valid_event():
             footer = embed_data.get("footer")
             if isinstance(footer, dict):
                 footer.setdefault("text", "Reacciona con 🔄 para solicitar rescan")

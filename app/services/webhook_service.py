@@ -96,6 +96,26 @@ class WebhookService:
                 )
                 return {"status": "duplicate_ignored"}
 
+            # Check if this alert was already notified as open
+            alert_id = payload.alert_id
+            if not alert_id and isinstance(payload.embed_data, dict):
+                alert_id = payload.embed_data.get("alert_id")
+
+            if self.alert_message_repository and alert_id and payload.status == "open" and hasattr(self.alert_message_repository, "get_by_alert_id"):
+                try:
+                    existing_mapping = await self.alert_message_repository.get_by_alert_id(alert_id)
+                except Exception:
+                    existing_mapping = None
+
+                if existing_mapping:
+                    await self.webhook_log_repository.add_log(
+                        server_id=guild_id,
+                        action="notify",
+                        payload=payload_dict,
+                        status="skipped_already_notified",
+                    )
+                    return {"status": "skipped_already_notified"}
+
             if points_awarded is False:
                 if not payload.user_id:
                     raise ValueError("NotifyWebhookPayload requires user_id when points_awarded is false")

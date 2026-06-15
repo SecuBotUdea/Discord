@@ -553,3 +553,79 @@ async def test_reaction_handler_stops_when_routing_fails() -> None:
 
     assert bot.fetch_user.await_count == 0
     assert bot.remove_user_reaction_from_message.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_notify_flow_skips_already_notified_open_alert() -> None:
+    from app.services.webhook_service import WebhookService
+
+    bot = FakeBot()
+    routing = FakeRoutingService()
+    logs = FakeWebhookLogRepository()
+
+    class FakeServerRepository:
+        async def get_server(self, guild_id: str):
+            return {"guild_id": guild_id}
+
+    class FakeAlertMessageRepositoryWithMapping:
+        async def get_by_alert_id(self, alert_id: str):
+            return {"alert_id": alert_id, "message_id": "msg123"}
+
+    service = WebhookService(
+        FakeServerRepository(),
+        logs,
+        bot,
+        routing,
+        alert_message_repository=FakeAlertMessageRepositoryWithMapping()
+    )
+
+    # Open alert that was already notified -> should be skipped
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        alert_id="alert_123",
+        status="open",
+        title="Title",
+    )
+
+    result = await service.process_notify(payload)
+    assert result == {"status": "skipped_already_notified"}
+    assert len(bot.messages) == 0
+    assert logs.logs[0][2] == "skipped_already_notified"
+
+
+@pytest.mark.asyncio
+async def test_notify_flow_delivers_fixed_alert_even_if_already_notified() -> None:
+    from app.services.webhook_service import WebhookService
+
+    bot = FakeBot()
+    routing = FakeRoutingService()
+    logs = FakeWebhookLogRepository()
+
+    class FakeServerRepository:
+        async def get_server(self, guild_id: str):
+            return {"guild_id": guild_id}
+
+    class FakeAlertMessageRepositoryWithMapping:
+        async def get_by_alert_id(self, alert_id: str):
+            return {"alert_id": alert_id, "message_id": "msg123"}
+
+    service = WebhookService(
+        FakeServerRepository(),
+        logs,
+        bot,
+        routing,
+        alert_message_repository=FakeAlertMessageRepositoryWithMapping()
+    )
+
+    # Fixed alert should be delivered even if mapping exists
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        alert_id="alert_123",
+        status="fixed",
+        title="Title",
+    )
+
+    result = await service.process_notify(payload)
+    assert result == {"status": "delivered"}
+    assert len(bot.messages) == 1
+    assert logs.logs[0][2] == "delivered"
