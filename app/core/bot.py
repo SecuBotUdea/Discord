@@ -187,7 +187,8 @@ class DiscordGatewayBot(discord.Client):
         embed = self._build_embed(message_content, embed_data)
         async with aiohttp.ClientSession() as session:
             webhook = discord.Webhook.from_url(webhook_url, session=session)
-            result = await webhook.send(content=message_content, embed=embed, wait=True)
+            content = None if embed else message_content
+            result = await webhook.send(content=content, embed=embed, wait=True)
             # `result` is a WebhookMessage when `wait=True`. Return its id if available.
             try:
                 message_id = getattr(result, "id", None)
@@ -227,7 +228,8 @@ class DiscordGatewayBot(discord.Client):
 
         user = await self.fetch_user(discord_user_id)
         embed = self._build_embed(message_content, embed_data)
-        await user.send(content=message_content, embed=embed)
+        content = None if embed else message_content
+        await user.send(content=content, embed=embed)
 
     async def remove_user_reaction_from_message(self, channel_id: str, message_id: str, emoji: str = RESCAN_EMOJI, user_id: str | None = None) -> bool:
         """Remove a specific user's reaction from a message. Returns True on success."""
