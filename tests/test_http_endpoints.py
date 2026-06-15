@@ -20,7 +20,7 @@ class FakeBot:
         self.messages = []
         self.direct_messages = []
 
-    async def send_message_to_guild(self, guild_id: str, message_content: str, embed_data=None) -> None:
+    async def send_message_to_guild(self, guild_id: str, message_content: str, embed_data=None, add_reaction: bool = True) -> None:
         self.messages.append((guild_id, message_content, embed_data))
 
     async def send_message_to_user(self, user_id: str, message_content: str, embed_data=None) -> None:

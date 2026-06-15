@@ -178,7 +178,7 @@ class DiscordGatewayBot(discord.Client):
         except Exception as exc:  # pragma: no cover - best-effort handler
             logger.exception("Error handling reaction for message %s: %s", message_id, exc)
 
-    async def send_message_to_guild(self, guild_id: str, message_content: str, embed_data: dict | None = None) -> str | None:
+    async def send_message_to_guild(self, guild_id: str, message_content: str, embed_data: dict | None = None, add_reaction: bool = True) -> str | None:
         server = await self.server_repository.get_server(guild_id)
         if not server:
             raise ValueError(f"No webhook configuration for guild {guild_id}")
@@ -194,7 +194,7 @@ class DiscordGatewayBot(discord.Client):
                 if message_id is not None:
                     message_id_str = str(message_id)
                     channel_id = server.get("channel_id")
-                    if channel_id:
+                    if channel_id and add_reaction:
                         logger.info("Attempting to add rescan reaction to webhook message %s in channel %s", message_id_str, channel_id)
                         added = await self.add_reaction_to_message(str(channel_id), message_id_str, RESCAN_EMOJI)
                         if added:
