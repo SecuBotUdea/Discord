@@ -20,6 +20,7 @@ class NotifyWebhookPayload(BaseModel):
     source_id: str | None = None
     team_id: str | None = None
     team_name: str | None = None
+    event_type: str | None = Field(default=None, description="Logical event name, for example rescan_valid")
 
     _SEVERITY_COLORS: dict[str, int] = {
         "low": 0x2ECC71,
@@ -37,6 +38,9 @@ class NotifyWebhookPayload(BaseModel):
     }
 
     def get_message_content(self) -> str:
+        if self.event_type == "rescan_valid":
+            return ""
+
         if self.message_content:
             return self.message_content
 
@@ -83,6 +87,11 @@ class NotifyWebhookPayload(BaseModel):
 
         if "description" not in embed_data:
             description_lines = []
+            
+            if self.event_type == "rescan_valid" and self.message_content:
+                description_lines.append(self.message_content)
+                description_lines.append("")
+
             if self.alert_id:
                 description_lines.append(f"Alert ID: {self.alert_id}")
             if self.status:
@@ -97,16 +106,17 @@ class NotifyWebhookPayload(BaseModel):
                 description_lines.append(f"Team: {self.team_name or self.team_id}")
 
             if description_lines:
-                embed_data["description"] = "\n".join(description_lines)
+                embed_data["description"] = "\n".join(description_lines).strip()
 
         if "color" not in embed_data:
             embed_data["color"] = self.get_severity_color()
 
-        footer = embed_data.get("footer")
-        if isinstance(footer, dict):
-            footer.setdefault("text", "Reacciona con 🔄 para solicitar rescan")
-        else:
-            embed_data["footer"] = {"text": "Reacciona con 🔄 para solicitar rescan"}
+        if self.event_type != "rescan_valid":
+            footer = embed_data.get("footer")
+            if isinstance(footer, dict):
+                footer.setdefault("text", "Reacciona con 🔄 para solicitar rescan")
+            else:
+                embed_data["footer"] = {"text": "Reacciona con 🔄 para solicitar rescan"}
 
         return embed_data or None
 
