@@ -51,8 +51,17 @@ class NotifyWebhookPayload(BaseModel):
             return True
         return self.is_points_awarded()
 
+    def is_rescan_result_event(self) -> bool:
+        if self.event_type in ("rescan_valid", "rescan_invalid"):
+            return True
+        if self.points_awarded is not None:
+            return True
+        if isinstance(self.embed_data, dict) and "points_awarded" in self.embed_data:
+            return True
+        return False
+
     def get_message_content(self) -> str:
-        if self.is_rescan_valid_event():
+        if self.is_rescan_result_event():
             return ""
 
         if self.message_content:
@@ -102,7 +111,7 @@ class NotifyWebhookPayload(BaseModel):
         if "description" not in embed_data:
             description_lines = []
             
-            if self.is_rescan_valid_event() and self.message_content:
+            if self.is_rescan_result_event() and self.message_content:
                 description_lines.append(self.message_content)
                 description_lines.append("")
 
