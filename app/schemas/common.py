@@ -134,7 +134,7 @@ class NotifyWebhookPayload(BaseModel):
         if "color" not in embed_data:
             embed_data["color"] = self.get_severity_color()
 
-        if not self.is_rescan_valid_event():
+        if not self.is_rescan_result_event():
             footer = embed_data.get("footer")
             if isinstance(footer, dict):
                 footer.setdefault("text", "Reacciona con 🔄 para solicitar rescan")
