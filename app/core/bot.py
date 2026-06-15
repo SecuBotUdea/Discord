@@ -13,6 +13,7 @@ from app.schemas.common import ActionWebhookPayload
 logger = logging.getLogger(__name__)
 
 RESCAN_EMOJI = "🔄"
+RESCAN_EMOJI_NAME = "rescan"
 
 
 class DiscordGatewayBot(discord.Client):
@@ -60,7 +61,11 @@ class DiscordGatewayBot(discord.Client):
                     user_id=str(user_id or interaction.user.id),
                 )
 
-                await self.routing_service.route_user_action(payload.model_dump())
+                routed = await self.routing_service.route_user_action(payload.model_dump())
+                if not routed:
+                    if interaction_open:
+                        await interaction.followup.send(f"❌ No se pudo enviar el rescan para `{alert_id}`")
+                    return
 
                 if interaction_open:
                     await interaction.followup.send(f"🔄 Reescaneo solicitado para `{alert_id}`")
@@ -129,7 +134,9 @@ class DiscordGatewayBot(discord.Client):
                 user_id=str(payload.user_id),
             )
 
-            await self.routing_service.route_user_action(action_payload.model_dump())
+            routed = await self.routing_service.route_user_action(action_payload.model_dump())
+            if not routed:
+                return
 
             # mark mapping as actioned to avoid duplicates
             try:

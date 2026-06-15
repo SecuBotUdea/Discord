@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+from unittest.mock import AsyncMock
 
 if __package__ is None:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -379,9 +380,11 @@ def test_notify_payload_builds_message_from_alert_fields() -> None:
     message = payload.get_message_content()
 
     assert "SQL injection detected" in message
-    assert "critical" in message
+    assert "Critical" in message
     assert "open" in message
     assert "api/auth" in message
+    assert "https://github.com/org/repo/security/1" in message
+    assert "zap" in message
     assert "Backend Team" in message
 
 
@@ -496,3 +499,57 @@ async def test_action_flow_keeps_user_id_when_routing() -> None:
     assert result == {"status": "delivered"}
     assert routing.payloads[0]["user_id"] == "user_456"
     assert logs.logs[0][4]["user_id"] == "user_456"
+
+
+@pytest.mark.asyncio
+async def test_routing_service_returns_false_on_timeout(monkeypatch) -> None:
+    from httpx import ReadTimeout
+    from app.services.routing_service import RoutingService
+
+    async def fake_post(self, *args, **kwargs):
+        raise ReadTimeout("timeout", request=None)
+
+    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
+
+    service = RoutingService("http://example.test/webhook/action")
+
+    assert await service.route_user_action({"action": "rescan"}) is False
+
+
+@pytest.mark.asyncio
+async def test_reaction_handler_stops_when_routing_fails() -> None:
+    from types import SimpleNamespace
+    from app.core.bot import DiscordGatewayBot
+
+    class FakeAlertMessageRepository:
+        async def get_by_message_id(self, message_id: str):
+            return {
+                "alert_id": "alert_123",
+                "guild_id": "guild_123",
+                "channel_id": "channel_123",
+                "message_id": message_id,
+            }
+
+        async def mark_actioned(self, *args, **kwargs):
+            return True
+
+    class FakeRoutingService:
+        async def route_user_action(self, payload: dict) -> bool:
+            return False
+
+    bot = DiscordGatewayBot(server_repository=object(), routing_service=FakeRoutingService(), alert_message_repository=FakeAlertMessageRepository())
+    bot.fetch_user = AsyncMock()
+    bot.remove_user_reaction_from_message = AsyncMock()
+
+    class FakeEmoji:
+        name = "rescan"
+
+        def __str__(self) -> str:
+            return "🔄"
+
+    payload = SimpleNamespace(message_id=1515571233771618334, user_id=1234, emoji=FakeEmoji())
+
+    await bot.on_raw_reaction_add(payload)
+
+    assert bot.fetch_user.await_count == 0
+    assert bot.remove_user_reaction_from_message.await_count == 0
