@@ -132,7 +132,13 @@ class NotifyWebhookPayload(BaseModel):
                 embed_data["description"] = "\n".join(description_lines).strip()
 
         if "color" not in embed_data:
-            embed_data["color"] = self.get_severity_color()
+            color = self.get_severity_color()
+            if self.message_content:
+                if "not resolved yet" in self.message_content:
+                    color = 0xF39C12  # Orange/Warning
+                elif "marked as invalid" in self.message_content:
+                    color = 0xE74C3C  # Red/Error
+            embed_data["color"] = color
 
         if not self.is_rescan_result_event():
             footer = embed_data.get("footer")
