@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app.schemas.common import ActionWebhookPayload, NotifyWebhookPayload
+from app.models.alert_mapping import AlertMessageMapping
 
 from app.config.team_guild_map import load_team_guild_map
 
@@ -10,11 +11,12 @@ _TEAM_GUILD_MAP = load_team_guild_map()
 _NOTIFY_DEDUP_WINDOW_SECONDS = 30
 
 class WebhookService:
-    def __init__(self, server_repository, webhook_log_repository, bot, routing_service) -> None:
+    def __init__(self, server_repository, webhook_log_repository, bot, routing_service, alert_message_repository=None) -> None:
         self.server_repository = server_repository
         self.webhook_log_repository = webhook_log_repository
         self.bot = bot
         self.routing_service = routing_service
+        self.alert_message_repository = alert_message_repository
         self._recent_notify_fingerprints: dict[str, datetime] = {}
 
     @staticmethod
@@ -75,6 +77,12 @@ class WebhookService:
                 "NotifyWebhookPayload requires guild_id or a valid team_id mapping"
             )
 
+        server_record = None
+        try:
+            server_record = await self.server_repository.get_server(guild_id)
+        except Exception:
+            server_record = None
+
         payload_dict = payload.model_dump()
         points_awarded = self._get_points_awarded(payload)
         fingerprint = self._notify_fingerprint(payload, guild_id)
@@ -88,21 +96,117 @@ class WebhookService:
                 )
                 return {"status": "duplicate_ignored"}
 
+            # Check if this alert was already notified as open
+            alert_id = payload.alert_id
+            if not alert_id and isinstance(payload.embed_data, dict):
+                alert_id = payload.embed_data.get("alert_id")
+
+            if self.alert_message_repository and alert_id and payload.status == "open" and hasattr(self.alert_message_repository, "get_by_alert_id"):
+                try:
+                    existing_mapping = await self.alert_message_repository.get_by_alert_id(alert_id)
+                except Exception:
+                    existing_mapping = None
+
+                if existing_mapping:
+                    await self.webhook_log_repository.add_log(
+                        server_id=guild_id,
+                        action="notify",
+                        payload=payload_dict,
+                        status="skipped_already_notified",
+                    )
+                    return {"status": "skipped_already_notified"}
+
             if points_awarded is False:
                 if not payload.user_id:
                     raise ValueError("NotifyWebhookPayload requires user_id when points_awarded is false")
 
+                # send private DM to the user
                 await self.bot.send_message_to_user(
                     user_id=payload.user_id,
                     message_content=payload.get_message_content(),
                     embed_data=payload.build_embed_data(),
                 )
+
+                # attempt to remove the reaction from the original alert message if mapping exists
+                try:
+                    if self.alert_message_repository and payload.alert_id:
+                        mapping = await self.alert_message_repository.get_by_alert_id(payload.alert_id)
+                    else:
+                        mapping = None
+                except Exception:
+                    mapping = None
+
+                if mapping:
+                    # try common rescan emojis
+                    for emoji in ("🔄", "🔁"):
+                        try:
+                            if hasattr(self.bot, "remove_reaction_from_message"):
+                                await self.bot.remove_reaction_from_message(
+                                    guild_id=mapping.get("guild_id"),
+                                    channel_id=mapping.get("channel_id"),
+                                    message_id=mapping.get("message_id"),
+                                    emoji=emoji,
+                                )
+                        except Exception:
+                            pass
+
+                    try:
+                        await self.alert_message_repository.mark_actioned(mapping.get("message_id"), status="points_lost", acted_by_user_id=payload.user_id)
+                    except Exception:
+                        pass
             else:
-                await self.bot.send_message_to_guild(
+                is_rescan_valid = payload.is_rescan_valid_event()
+                # send message to guild and record message_id -> alert mapping when possible
+                message_id = await self.bot.send_message_to_guild(
                     guild_id=guild_id,
                     message_content=payload.get_message_content(),
                     embed_data=payload.build_embed_data(),
+                    add_reaction=not is_rescan_valid,
                 )
+
+                if is_rescan_valid and alert_id:
+                    try:
+                        mapping = await self.alert_message_repository.get_by_alert_id(alert_id)
+                    except Exception:
+                        mapping = None
+
+                    if mapping:
+                        # try common rescan emojis
+                        for emoji in ("🔄", "🔁"):
+                            try:
+                                if hasattr(self.bot, "remove_reaction_from_message"):
+                                    await self.bot.remove_reaction_from_message(
+                                        guild_id=mapping.get("guild_id"),
+                                        channel_id=mapping.get("channel_id"),
+                                        message_id=mapping.get("message_id"),
+                                        emoji=emoji,
+                                    )
+                            except Exception:
+                                pass
+
+                        try:
+                            await self.alert_message_repository.mark_actioned(
+                                mapping.get("message_id"),
+                                status="points_awarded",
+                                acted_by_user_id=payload.user_id,
+                            )
+                        except Exception:
+                            pass
+
+                actual_alert_id = payload.alert_id or alert_id
+                if message_id and actual_alert_id:
+                    channel_id = payload.channel_id or (server_record or {}).get("channel_id") or ""
+                    mapping = AlertMessageMapping(
+                        alert_id=actual_alert_id,
+                        guild_id=guild_id,
+                        channel_id=channel_id,
+                        message_id=message_id,
+                    )
+                    try:
+                        await self.alert_message_repository.upsert_mapping(mapping)
+                    except Exception:
+                        # non-fatal: log elsewhere via webhook_log
+                        pass
 
             await self.webhook_log_repository.add_log(
                 server_id=guild_id,

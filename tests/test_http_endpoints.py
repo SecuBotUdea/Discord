@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+from unittest.mock import AsyncMock
 
 if __package__ is None:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -19,7 +20,7 @@ class FakeBot:
         self.messages = []
         self.direct_messages = []
 
-    async def send_message_to_guild(self, guild_id: str, message_content: str, embed_data=None) -> None:
+    async def send_message_to_guild(self, guild_id: str, message_content: str, embed_data=None, add_reaction: bool = True) -> None:
         self.messages.append((guild_id, message_content, embed_data))
 
     async def send_message_to_user(self, user_id: str, message_content: str, embed_data=None) -> None:
@@ -379,9 +380,11 @@ def test_notify_payload_builds_message_from_alert_fields() -> None:
     message = payload.get_message_content()
 
     assert "SQL injection detected" in message
-    assert "critical" in message
+    assert "Critical" in message
     assert "open" in message
     assert "api/auth" in message
+    assert "https://github.com/org/repo/security/1" in message
+    assert "zap" in message
     assert "Backend Team" in message
 
 
@@ -436,7 +439,12 @@ def test_notify_payload_builds_colored_embed_for_severity() -> None:
     assert embed_data is not None
     assert embed_data["title"].startswith("🟠 ")
     assert embed_data["color"] == 0xF39C12
-    assert "description" not in embed_data
+    assert embed_data["description"].startswith("Alert ID: alert_123")
+    assert "Status: open" in embed_data["description"]
+    assert "Component: ws" in embed_data["description"]
+    assert "Location: https://example.com/security/1" in embed_data["description"]
+    assert "Source: dependabot" in embed_data["description"]
+    assert "Team: coleccionDeCiencias" in embed_data["description"]
 
 
 def test_notify_payload_uses_gray_embed_for_unknown_severity() -> None:
@@ -491,3 +499,133 @@ async def test_action_flow_keeps_user_id_when_routing() -> None:
     assert result == {"status": "delivered"}
     assert routing.payloads[0]["user_id"] == "user_456"
     assert logs.logs[0][4]["user_id"] == "user_456"
+
+
+@pytest.mark.asyncio
+async def test_routing_service_returns_false_on_timeout(monkeypatch) -> None:
+    from httpx import ReadTimeout
+    from app.services.routing_service import RoutingService
+
+    async def fake_post(self, *args, **kwargs):
+        raise ReadTimeout("timeout", request=None)
+
+    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
+
+    service = RoutingService("http://example.test/webhook/action")
+
+    assert await service.route_user_action({"action": "rescan"}) is False
+
+
+@pytest.mark.asyncio
+async def test_reaction_handler_stops_when_routing_fails() -> None:
+    from types import SimpleNamespace
+    from app.core.bot import DiscordGatewayBot
+
+    class FakeAlertMessageRepository:
+        async def get_by_message_id(self, message_id: str):
+            return {
+                "alert_id": "alert_123",
+                "guild_id": "guild_123",
+                "channel_id": "channel_123",
+                "message_id": message_id,
+            }
+
+        async def mark_actioned(self, *args, **kwargs):
+            return True
+
+    class FakeRoutingService:
+        async def route_user_action(self, payload: dict) -> bool:
+            return False
+
+    bot = DiscordGatewayBot(server_repository=object(), routing_service=FakeRoutingService(), alert_message_repository=FakeAlertMessageRepository())
+    bot.fetch_user = AsyncMock()
+    bot.remove_user_reaction_from_message = AsyncMock()
+
+    class FakeEmoji:
+        name = "rescan"
+
+        def __str__(self) -> str:
+            return "🔄"
+
+    payload = SimpleNamespace(message_id=1515571233771618334, user_id=1234, emoji=FakeEmoji())
+
+    await bot.on_raw_reaction_add(payload)
+
+    assert bot.fetch_user.await_count == 0
+    assert bot.remove_user_reaction_from_message.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_notify_flow_skips_already_notified_open_alert() -> None:
+    from app.services.webhook_service import WebhookService
+
+    bot = FakeBot()
+    routing = FakeRoutingService()
+    logs = FakeWebhookLogRepository()
+
+    class FakeServerRepository:
+        async def get_server(self, guild_id: str):
+            return {"guild_id": guild_id}
+
+    class FakeAlertMessageRepositoryWithMapping:
+        async def get_by_alert_id(self, alert_id: str):
+            return {"alert_id": alert_id, "message_id": "msg123"}
+
+    service = WebhookService(
+        FakeServerRepository(),
+        logs,
+        bot,
+        routing,
+        alert_message_repository=FakeAlertMessageRepositoryWithMapping()
+    )
+
+    # Open alert that was already notified -> should be skipped
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        alert_id="alert_123",
+        status="open",
+        title="Title",
+    )
+
+    result = await service.process_notify(payload)
+    assert result == {"status": "skipped_already_notified"}
+    assert len(bot.messages) == 0
+    assert logs.logs[0][2] == "skipped_already_notified"
+
+
+@pytest.mark.asyncio
+async def test_notify_flow_delivers_fixed_alert_even_if_already_notified() -> None:
+    from app.services.webhook_service import WebhookService
+
+    bot = FakeBot()
+    routing = FakeRoutingService()
+    logs = FakeWebhookLogRepository()
+
+    class FakeServerRepository:
+        async def get_server(self, guild_id: str):
+            return {"guild_id": guild_id}
+
+    class FakeAlertMessageRepositoryWithMapping:
+        async def get_by_alert_id(self, alert_id: str):
+            return {"alert_id": alert_id, "message_id": "msg123"}
+
+    service = WebhookService(
+        FakeServerRepository(),
+        logs,
+        bot,
+        routing,
+        alert_message_repository=FakeAlertMessageRepositoryWithMapping()
+    )
+
+    # Fixed alert should be delivered even if mapping exists
+    payload = NotifyWebhookPayload(
+        guild_id="123",
+        alert_id="alert_123",
+        status="fixed",
+        title="Title",
+    )
+
+    result = await service.process_notify(payload)
+    assert result == {"status": "delivered"}
+    assert len(bot.messages) == 1
+    assert logs.logs[0][2] == "delivered"
